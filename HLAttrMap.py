@@ -66,7 +66,38 @@ pd.set_option('display.float_format', lambda x: '%.3f' % x)
 #fill all null values with empty
 match.fillna('')
 
+#query to get Payor_ID_Number joined into our matched df
+sql2 = '''SELECT  X.*
+                    FROM    ( SELECT DISTINCT
+                                        cp.Client_ID
+                                       ,cp.Payor_ID_Number
+                                       ,MAX(cp.BeginDate) AS maxbegindate
+                                       ,ROW_NUMBER() OVER ( PARTITION BY Client_ID ORDER BY pc.PayorName ASC ) AS rnum
+                              FROM      ndw3nfdb.dbo.ClientPayor AS cp
+                                        INNER JOIN ndw3nfdb.dbo.PayorCode AS pc WITH (NOLOCK) ON pc.PayorCode_ID = cp.PayorCode_ID
+                                        LEFT JOIN ndw3nfdb.dbo.PayorGroup AS pg WITH (NOLOCK) ON pg.PayorGroup_ID = pc.Payor_GRP_ID
+                              WHERE     cp.EndDate IS NULL
+                                        AND pg.Tenncare = 1
+                                        AND cp.ORG_ID = 1
+                              GROUP BY  cp.Client_ID
+                                       ,cp.Payor_ID_Number
+                                       ,pc.PayorName
+                            ) X
+                    WHERE   X.rnum = 1
+                            AND X.Payor_ID_Number IS NOT NULL'''
+
+data2 = pd.DataFrame(pd.read_sql(sql2, cnxn))
+
+#get client_id into str format
+data2['Client_ID'] = data2['Client_ID'].apply(lambda x: str(int(x)))
+
+merged2i = pd.merge(match, data2, on='Client_ID', how='inner')
+
+merged2i = merged2i[['HEALTH PLAN', 'Payor_ID_Number', 'Client_ID', 'Last4SSN', 'PATIENT_DOB', 'clientname', 'ADDRESS',
+                        'PHONE NUMBER2', 'PCP_NAME', 'THL_STATUS', 'ASSIGNED DATE/ATTRIBUTED DATE', 'PROGRAM_NAMES',
+                        'RISK_CATEGORY_NAME', 'RISK_SCORE', ]]
+
 match.to_csv('match.csv', sep = ',')
 
-print('no match: ' + str(nomatch.shape))
-print('match: ' + str(match.shape))
+print('no match: ' + str(int(attr.shape[0]) - int(merged2i.shape[0])))
+print('match: ' + str(merged2i.shape))
