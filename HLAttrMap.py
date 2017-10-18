@@ -11,7 +11,7 @@ pd.set_option('display.float_format', lambda x: '%.3f' % x) #stops phone numbers
 
 os.chdir(r'C:\Users\angus.gray\Downloads') #change directory to where the attribution list is located
 
-now = datetime.datetime.now()
+now = datetime.datetime.now() #used later to make a 'date data pulled' column and to name csv output
 
 #gets the similarity ratio between the two clientname columns
 def apply_sm(merged, c1, c2):
@@ -59,20 +59,21 @@ attr['SSN'] = attr['SSN'].apply(str) #make SSN a string so it is able to be merg
 
 merged = pd.merge(attr, client_id_ssn, on='SSN', how='left') #join/merge our attr list and SSN data from NDW
 
-merged = merged.fillna('') #fill all NaN values so we can iterate over them
+merged = merged.fillna('') #fill all NaN values with a blank string value so we can iterate over them without error
 
 #create column that shows the similarity ratio between the two name columns.  (calling defined apply_sm function from above)
 merged['NameMatchRatio'] = merged.apply(partial(apply_sm, c1='CLIENT NAME', c2='ClientName'), axis=1)
 
 merged['Last4SSN'] = merged['SSN'].apply(lambda x: str(x)[-4:]) #get a last 4 SSN field instead of keeping full length SSN
-merged['PHONE NUMBER'] = merged['PHONE NUMBER'].apply(lambda x: str(x)[:10]) #make phone number a string and get the first 9 digits
-merged['PHONE NUMBER'].replace(to_replace = 'nan', value = '', inplace = True) #replace values 'nan' with a blank ('')
+merged['PHONE NUMBER'] = merged['PHONE NUMBER'].apply(lambda x: str(x)[:10]) #make phone number a string and get the first 10 digits
+merged['PHONE NUMBER'].replace(to_replace = 'nan', value = '', inplace = True) #replace values 'nan' with a blank ('') string value
 
 #drop useless columns
 merged.drop(['LAST_NAME', 'FIRST_NAME', 'ALTRUISTA_ID',
        'INSURANCE ID', 'SSN',  'LAST_CLAIM', 'LAST_VISIT_DATE',
        'NEXT_VISIT_DATE', 'ER_VISITS', 'APP_VISITS',
-       'ADTDAYS_COUNT', 'DUE_DAYS', 'ClientName'], axis = 1, inplace = True)
+       'ADTDAYS_COUNT', 'DUE_DAYS', 'ClientName',
+       'ASSIGNED DATE/ATTRIBUTED DATE', 'PROGRAM_NAMES', 'RISK_CATEGORY_NAME', 'RISK_SCORE'], axis = 1, inplace = True)
 
 
 #get the payor_id info in NDW and store it in a dataframe
@@ -194,20 +195,47 @@ next_service_data = pd.DataFrame(pd.read_sql(next_service_info, cnxn))
 main_data = pd.merge(main_data, next_service_data, on='Client_ID', how='left') #merge our main dataframe and the next service data
 
 
+#get the level of care  info in NDW and store it in a dataframe
+loc_info = '''SELECT  X.SourceClient_ID as Client_ID
+,       X.HLink_LOC
+FROM    ( SELECT    c.SourceClient_ID
+          ,         cp.HLink_LOC
+          ,         ROW_NUMBER() OVER ( PARTITION BY c.SourceClient_ID ORDER BY cp.BeginDate DESC ) AS rnum4
+          FROM      dbo.ClientProgram AS cp
+                    LEFT JOIN Client AS c ON c.Client_ID = cp.Client_ID
+          WHERE     cp.PROG_ID = 6101
+                    AND cp.ORG_ID = 1
+                    AND cp.EndDate IS NULL
+        ) X
+WHERE   X.rnum4 = 1;'''
+
+loc_data = pd.DataFrame(pd.read_sql(loc_info, cnxn))
+main_data = pd.merge(main_data, loc_data, on='Client_ID', how='left') #merge our main dataframe and the level of care data
+
+
+#get the client status info in NDW and store it in a dataframe
+status_info = '''SELECT  c.SourceClient_ID as Client_ID
+,       c.ClientStatus AS MemberStatus
+FROM    Client AS c
+WHERE   c.ORG_ID = 1;'''
+
+status_data = pd.DataFrame(pd.read_sql(status_info, cnxn))
+main_data = pd.merge(main_data, status_data, on='Client_ID', how='left') #merge our main dataframe and the client status data
+
 main_data.drop(['rnum', 'rnum1', 'rnum2', 'maxbegindate'], axis = 1, inplace = True) #drop more useless columns that were joined
 
-main_data = main_data.fillna('') #fill all NaN values so data looks nicer and so we can iterate over them
+main_data = main_data.fillna('') #fill all NaN values a blank string so data looks nicer and so we can iterate over them without error
+
+main_data['Payor_ID_Number'] = main_data['Payor_ID_Number'].str.strip('ZEC|D') #Strip ZEC or ZED from beginning of payor_id.  ( at the request of Mandi)
 
 main_data['RunDate'] = now.strftime("%Y-%m-%d") #add a column that displays what date this data was ran out on
 
 #reorganize our columns into a nicer display order
 main_data = main_data[['RunDate', 'HEALTH PLAN', 'Payor_ID_Number', 'Client_ID', 'Last4SSN',
-       'PATIENT_DOB', 'CLIENT NAME', 'ADDRESS', 'PHONE NUMBER', 'PCP_NAME',
-       'THL_STATUS', 'ASSIGNED DATE/ATTRIBUTED DATE', 'PROGRAM_NAMES',
-       'RISK_CATEGORY_NAME', 'RISK_SCORE', 'CC_Name', 'CCLocation',
-       'LastServiceDate', 'LastServiceLocation', 'LastServiceActivityCode',
-       'LastServiceActivity', 'NextServiceDate', 'NextServiceLocation',
-       'NextServiceActivityCode', 'NextServiceActivity', 'NameMatchRatio']]
+       'PATIENT_DOB', 'CLIENT NAME', 'ADDRESS', 'PHONE NUMBER', 'PCP_NAME', 'MemberStatus',
+       'THL_STATUS', 'CC_Name', 'CCLocation','LastServiceDate', 'LastServiceLocation',
+       'LastServiceActivityCode','LastServiceActivity', 'NextServiceDate', 'NextServiceLocation',
+       'NextServiceActivityCode', 'NextServiceActivity', 'NameMatchRatio', 'HLink_LOC']]
 
 #creates a dataframe of only matched clients.  this has no use except to calculate the number of matched vs unmatched attributed clients
 match = main_data[(main_data['Payor_ID_Number'] != '') & (main_data['NameMatchRatio'] >= 0.70)]
