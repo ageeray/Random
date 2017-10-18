@@ -7,15 +7,17 @@ import os
 from functools import partial
 import datetime
 
-pd.set_option('display.float_format', lambda x: '%.3f' % x)
+pd.set_option('display.float_format', lambda x: '%.3f' % x) #stops phone numbers from appearing in scientific notation
 
-os.chdir(r'C:\Users\angus.gray\Downloads')
+os.chdir(r'C:\Users\angus.gray\Downloads') #change directory to where the attribution list is located
 
 now = datetime.datetime.now()
 
+#gets the similarity ratio between the two clientname columns
 def apply_sm(merged, c1, c2):
     return difflib.SequenceMatcher(None, merged[c1], merged[c2]).ratio()
 
+#connect to NDW using windows authentication
 conn_str = (
             r'Driver={SQL Server};'
             r'Server=cstnismdb27.centerstone.lan;'
@@ -25,10 +27,11 @@ conn_str = (
 
 cnxn = pyodbc.connect(conn_str)
 
-attr = pd.read_excel('AttrList.xlsx')
+attr = pd.read_excel('AttrList.xlsx') #read in the attribution file
 
-attr['CLIENT NAME'] = attr['LAST_NAME'] + ', ' + attr['FIRST_NAME']
+attr['CLIENT NAME'] = attr['LAST_NAME'] + ', ' + attr['FIRST_NAME'] #make combined name field for the attr list
 
+#get the client id and ssn info in NDW and store it in a dataframe
 client_id_ssn = '''SELECT DISTINCT
         X.Client_ID
 ,       X.SSN
@@ -52,23 +55,27 @@ WHERE   rnum3 = 1;'''
 
 client_id_ssn = pd.DataFrame(pd.read_sql(client_id_ssn, cnxn))
 
-attr['SSN'] = attr['SSN'].apply(str)
+attr['SSN'] = attr['SSN'].apply(str) #make SSN a string so it is able to be merged on
 
-merged = pd.merge(attr, client_id_ssn, on='SSN', how='left')
+merged = pd.merge(attr, client_id_ssn, on='SSN', how='left') #join/merge our attr list and SSN data from NDW
 
-merged = merged.fillna('')
+merged = merged.fillna('') #fill all NaN values so we can iterate over them
 
+#create column that shows the similarity ratio between the two name columns.  (calling defined apply_sm function from above)
 merged['NameMatchRatio'] = merged.apply(partial(apply_sm, c1='CLIENT NAME', c2='ClientName'), axis=1)
 
-merged['Last4SSN'] = merged['SSN'].apply(lambda x: str(x)[-4:])
-merged['PHONE NUMBER'] = merged['PHONE NUMBER'].apply(lambda x: str(x)[:10])
-merged['PHONE NUMBER'].replace(to_replace = 'nan', value = '', inplace = True)
+merged['Last4SSN'] = merged['SSN'].apply(lambda x: str(x)[-4:]) #get a last 4 SSN field instead of keeping full length SSN
+merged['PHONE NUMBER'] = merged['PHONE NUMBER'].apply(lambda x: str(x)[:10]) #make phone number a string and get the first 9 digits
+merged['PHONE NUMBER'].replace(to_replace = 'nan', value = '', inplace = True) #replace values 'nan' with a blank ('')
 
+#drop useless columns
 merged.drop(['LAST_NAME', 'FIRST_NAME', 'ALTRUISTA_ID',
        'INSURANCE ID', 'SSN',  'LAST_CLAIM', 'LAST_VISIT_DATE',
        'NEXT_VISIT_DATE', 'ER_VISITS', 'APP_VISITS',
        'ADTDAYS_COUNT', 'DUE_DAYS', 'ClientName'], axis = 1, inplace = True)
 
+
+#get the payor_id info in NDW and store it in a dataframe
 payor_id = '''SELECT  X.*
                     FROM    ( SELECT DISTINCT
                                         c.sourceClient_ID as Client_ID
@@ -90,9 +97,10 @@ payor_id = '''SELECT  X.*
                             AND X.Payor_ID_Number IS NOT NULL'''
 
 payor_id_data = pd.DataFrame(pd.read_sql(payor_id, cnxn))
-main_data = pd.merge(merged, payor_id_data, on='Client_ID', how='left')
+main_data = pd.merge(merged, payor_id_data, on='Client_ID', how='left') #merge our main dataframe and the payor_id data
 
 
+#get the care coordinator info in NDW and store it in a dataframe
 cc_info = '''        SELECT  X1.sourceClient_ID as Client_ID
                ,X1.CC_Name
                ,X1.LOC_Name as CCLocation
@@ -127,8 +135,10 @@ cc_info = '''        SELECT  X1.sourceClient_ID as Client_ID
 '''
 
 cc_info_data = pd.DataFrame(pd.read_sql(cc_info, cnxn))
-main_data = pd.merge(main_data, cc_info_data, on='Client_ID', how='left')
+main_data = pd.merge(main_data, cc_info_data, on='Client_ID', how='left') #merge our main dataframe and the cc_info data
 
+
+#get the previous service info in NDW and store it in a dataframe
 previous_service_info = '''SELECT  X.*
 FROM    ( SELECT    c.SourceClient_ID AS Client_ID
           ,         MAX(s.ServiceDate) AS LastServiceDate
@@ -154,8 +164,10 @@ FROM    ( SELECT    c.SourceClient_ID AS Client_ID
 WHERE   X.rnum1 = 1;'''
 
 previous_service_data = pd.DataFrame(pd.read_sql(previous_service_info, cnxn))
-main_data = pd.merge(main_data, previous_service_data, on='Client_ID', how='left')
+main_data = pd.merge(main_data, previous_service_data, on='Client_ID', how='left') #merge our main dataframe and the previous service data
 
+
+#get the next service info in NDW and store it in a dataframe
 next_service_info = '''SELECT  X.*
 FROM    ( SELECT    c.SourceClient_ID AS Client_ID
           ,         MIN(s.ServiceDate) AS NextServiceDate
@@ -179,14 +191,16 @@ FROM    ( SELECT    c.SourceClient_ID AS Client_ID
 WHERE   X.rnum2 = 1;'''
 
 next_service_data = pd.DataFrame(pd.read_sql(next_service_info, cnxn))
-main_data = pd.merge(main_data, next_service_data, on='Client_ID', how='left')
+main_data = pd.merge(main_data, next_service_data, on='Client_ID', how='left') #merge our main dataframe and the next service data
 
-main_data.drop(['rnum', 'rnum1', 'rnum2', 'maxbegindate'], axis = 1, inplace = True)
 
-main_data = main_data.fillna('')
+main_data.drop(['rnum', 'rnum1', 'rnum2', 'maxbegindate'], axis = 1, inplace = True) #drop more useless columns that were joined
 
-main_data['RunDate'] = now.strftime("%Y-%m-%d")
+main_data = main_data.fillna('') #fill all NaN values so data looks nicer and so we can iterate over them
 
+main_data['RunDate'] = now.strftime("%Y-%m-%d") #add a column that displays what date this data was ran out on
+
+#reorganize our columns into a nicer display order
 main_data = main_data[['RunDate', 'HEALTH PLAN', 'Payor_ID_Number', 'Client_ID', 'Last4SSN',
        'PATIENT_DOB', 'CLIENT NAME', 'ADDRESS', 'PHONE NUMBER', 'PCP_NAME',
        'THL_STATUS', 'ASSIGNED DATE/ATTRIBUTED DATE', 'PROGRAM_NAMES',
@@ -195,11 +209,14 @@ main_data = main_data[['RunDate', 'HEALTH PLAN', 'Payor_ID_Number', 'Client_ID',
        'LastServiceActivity', 'NextServiceDate', 'NextServiceLocation',
        'NextServiceActivityCode', 'NextServiceActivity', 'NameMatchRatio']]
 
+#creates a dataframe of only matched clients.  this has no use except to calculate the number of matched vs unmatched attributed clients
 match = main_data[(main_data['Payor_ID_Number'] != '') & (main_data['NameMatchRatio'] >= 0.70)]
 
-print('no match: ' + str(int(main_data.shape[0]) - int(match.shape[0])))
-print('match: ' + str(match.shape[0]))
+print('no match: ' + str(int(main_data.shape[0]) - int(match.shape[0]))) #prints the number of clients that did not get associated with a Payor_ID_Number
+print('match: ' + str(match.shape[0])) #prints the number of clients that DID get associated with a Payor_ID_Number
 
+#drop the last useless column
 main_data.drop(['NameMatchRatio'], axis = 1, inplace = True)
 
+#send our mapped client info to a csv file in the current working directory.  (CWD is located at top of document)
 main_data.to_csv('HLAltruistaAttrClientsMapped' + ' ' + now.strftime("%Y-%m-%d") + '.csv', index = False)
