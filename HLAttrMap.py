@@ -227,6 +227,7 @@ main_data.drop(['rnum', 'rnum1', 'rnum2', 'maxbegindate'], axis = 1, inplace = T
 main_data = main_data.fillna('') #fill all NaN values a blank string so data looks nicer and so we can iterate over them without error
 
 main_data['Payor_ID_Number'] = main_data['Payor_ID_Number'].str.strip('ZEC|D') #Strip ZEC or ZED from beginning of payor_id.  ( at the request of Mandi)
+main_data.loc[main_data['Payor_ID_Number'].str.startswith('M'), 'Payor_ID_Number'] += '01'
 
 main_data['RunDate'] = now.strftime("%Y-%m-%d") #add a column that displays what date this data was ran out on
 
