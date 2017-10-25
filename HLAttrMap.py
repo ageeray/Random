@@ -9,7 +9,7 @@ import datetime
 
 pd.set_option('display.float_format', lambda x: '%.3f' % x) #stops phone numbers from appearing in scientific notation
 
-os.chdir(r'C:\Users\angus.gray\Downloads') #change directory to where the attribution list is located
+os.chdir(r'H:\HL Altruitsa Pulls\Raw files') #change directory to where the attribution list is located
 
 now = datetime.datetime.now() #used later to make a 'date data pulled' column and to name csv output
 
@@ -27,7 +27,7 @@ conn_str = (
 
 cnxn = pyodbc.connect(conn_str)
 
-attr = pd.read_excel('AttrList.xlsx') #read in the attribution file
+attr = pd.read_excel('AltruistaMemberAssignment20171019.xlsx') #read in the attribution file
 
 attr['CLIENT NAME'] = attr['LAST_NAME'] + ', ' + attr['FIRST_NAME'] #make combined name field for the attr list
 
@@ -64,13 +64,13 @@ merged = merged.fillna('') #fill all NaN values with a blank string value so we 
 #create column that shows the similarity ratio between the two name columns.  (calling defined apply_sm function from above)
 merged['NameMatchRatio'] = merged.apply(partial(apply_sm, c1='CLIENT NAME', c2='ClientName'), axis=1)
 
-merged['Last4SSN'] = merged['SSN'].apply(lambda x: str(x)[-4:]) #get a last 4 SSN field instead of keeping full length SSN
+#merged['Last4SSN'] = merged['SSN'].apply(lambda x: str(x)[-4:]) #get a last 4 SSN field instead of keeping full length SSN
 merged['PHONE NUMBER'] = merged['PHONE NUMBER'].apply(lambda x: str(x)[:10]) #make phone number a string and get the first 10 digits
 merged['PHONE NUMBER'].replace(to_replace = 'nan', value = '', inplace = True) #replace values 'nan' with a blank ('') string value
 
 #drop useless columns
 merged.drop(['LAST_NAME', 'FIRST_NAME', 'ALTRUISTA_ID',
-       'INSURANCE ID', 'SSN',  'LAST_CLAIM', 'LAST_VISIT_DATE',
+       'INSURANCE ID',  'LAST_CLAIM', 'LAST_VISIT_DATE',
        'NEXT_VISIT_DATE', 'ER_VISITS', 'APP_VISITS',
        'ADTDAYS_COUNT', 'DUE_DAYS', 'ClientName',
        'ASSIGNED DATE/ATTRIBUTED DATE', 'PROGRAM_NAMES', 'RISK_CATEGORY_NAME', 'RISK_SCORE'], axis = 1, inplace = True)
@@ -232,20 +232,22 @@ main_data.loc[main_data['Payor_ID_Number'].str.startswith('M'), 'Payor_ID_Number
 main_data['RunDate'] = now.strftime("%Y-%m-%d") #add a column that displays what date this data was ran out on
 
 #reorganize our columns into a nicer display order
-main_data = main_data[['RunDate', 'HEALTH PLAN', 'Payor_ID_Number', 'Client_ID', 'Last4SSN',
+main_data = main_data[['RunDate', 'HEALTH PLAN', 'Payor_ID_Number', 'Client_ID', 'SSN',
        'PATIENT_DOB', 'CLIENT NAME', 'ADDRESS', 'PHONE NUMBER', 'PCP_NAME', 'MemberStatus',
        'THL_STATUS', 'CC_Name', 'CCLocation','LastServiceDate', 'LastServiceLocation',
        'LastServiceActivityCode','LastServiceActivity', 'NextServiceDate', 'NextServiceLocation',
        'NextServiceActivityCode', 'NextServiceActivity', 'NameMatchRatio', 'HLink_LOC']]
 
 #creates a dataframe of only matched clients.  this has no use except to calculate the number of matched vs unmatched attributed clients
-match = main_data[(main_data['Payor_ID_Number'] != '') & (main_data['NameMatchRatio'] >= 0.70)]
+match = main_data[(main_data['Client_ID'] != '') & (main_data['NameMatchRatio'] >= 0.70)]
 
 print('no match: ' + str(int(main_data.shape[0]) - int(match.shape[0]))) #prints the number of clients that did not get associated with a Payor_ID_Number
 print('match: ' + str(match.shape[0])) #prints the number of clients that DID get associated with a Payor_ID_Number
 
 #drop the last useless column
 main_data.drop(['NameMatchRatio'], axis = 1, inplace = True)
+
+os.chdir(r'H:\HL Altruitsa Pulls\Mapped Attributed Lists') #change directory to where file belongs.
 
 #send our mapped client info to a csv file in the current working directory.  (CWD is located at top of document)
 main_data.to_csv('HLAltruistaAttrClientsMapped' + ' ' + now.strftime("%Y-%m-%d") + '.csv', index = False)
