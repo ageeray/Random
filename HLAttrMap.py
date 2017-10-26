@@ -78,24 +78,25 @@ merged.drop(['LAST_NAME', 'FIRST_NAME', 'ALTRUISTA_ID',
 
 #get the payor_id info in NDW and store it in a dataframe
 payor_id = '''SELECT  X.*
-                    FROM    ( SELECT DISTINCT
-                                        c.sourceClient_ID as Client_ID
-                                       ,cp.Payor_ID_Number
-                                       ,MAX(cp.BeginDate) AS maxbegindate
-                                       ,ROW_NUMBER() OVER ( PARTITION BY c.sourceClient_ID ORDER BY pc.PayorName ASC ) AS rnum
-                              FROM      ndw3nfdb.dbo.ClientPayor AS cp
-                                        INNER JOIN ndw3nfdb.dbo.PayorCode AS pc WITH (NOLOCK) ON pc.PayorCode_ID = cp.PayorCode_ID
-                                        LEFT JOIN ndw3nfdb.dbo.PayorGroup AS pg WITH (NOLOCK) ON pg.PayorGroup_ID = pc.Payor_GRP_ID
-                                        INNER JOIN ndw3nfdb.dbo.client as c with (NOLOCK) on c.client_id = cp.client_id
-                              WHERE     cp.EndDate IS NULL
-                                        AND pg.Tenncare = 1
-                                        AND cp.ORG_ID = 1
-                              GROUP BY  c.sourceClient_ID
-                                       ,cp.Payor_ID_Number
-                                       ,pc.PayorName
-                            ) X
-                    WHERE   X.rnum = 1
-                            AND X.Payor_ID_Number IS NOT NULL'''
+FROM    ( SELECT DISTINCT
+                    c.SourceClient_ID AS Client_ID
+          ,         cp.Payor_ID_Number
+          ,         MAX(cp.BeginDate) AS maxbegindate
+          ,         ROW_NUMBER() OVER ( PARTITION BY c.SourceClient_ID ORDER BY cp.PayorCode_ID DESC ) AS rnum
+          FROM      ndw3nfdb.dbo.ClientPayor AS cp
+                    INNER JOIN ndw3nfdb.dbo.PayorCode AS pc WITH ( NOLOCK ) ON pc.PayorCode_ID = cp.PayorCode_ID
+                    LEFT JOIN ndw3nfdb.dbo.PayorGroup AS pg WITH ( NOLOCK ) ON pg.PayorGroup_ID = pc.Payor_GRP_ID
+                    INNER JOIN ndw3nfdb.dbo.Client AS c WITH ( NOLOCK ) ON c.Client_ID = cp.Client_ID
+          WHERE     cp.EndDate IS NULL
+                    AND pg.Tenncare = 1
+                    AND cp.ORG_ID = 1
+          GROUP BY  c.SourceClient_ID
+          ,         cp.Payor_ID_Number
+          ,         pc.PayorName
+          ,         cp.PayorCode_ID
+        ) X
+WHERE   X.rnum = 1
+        AND X.Payor_ID_Number IS NOT NULL'''
 
 payor_id_data = pd.DataFrame(pd.read_sql(payor_id, cnxn))
 main_data = pd.merge(merged, payor_id_data, on='Client_ID', how='left') #merge our main dataframe and the payor_id data
